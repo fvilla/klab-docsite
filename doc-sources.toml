@@ -1,0 +1,41 @@
+version = 1
+
+[[projects]]
+id = "klab-services"
+title = "k.LAB services"
+repository = "../klab-services"
+source = "docs"
+destination = "reference/klab-services"
+required = true
+
+[[projects]]
+id = "klab-ide"
+title = "k.LAB IDE"
+repository = "../klab-ide"
+source = "docs"
+destination = "reference/klab-ide"
+required = true
+
+[[projects]]
+id = "klab-services-kactors-guide"
+title = "k.Actors language guide"
+repository = "../klab-services"
+source = "AGENTS.md"
+destination = "reference/AGENTS.md"
+required = true
+
+[[projects]]
+id = "klab-component-generators"
+title = "Component generators"
+repository = "../klab.component.generators"
+source = "docs"
+destination = "reference/components/generators"
+required = false
+
+[[projects]]
+id = "klab-component-geospatial"
+title = "Geospatial component"
+repository = "../klab.component.geospatial"
+source = "docs"
+destination = "reference/components/geospatial"
+required = false
