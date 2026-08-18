@@ -26,8 +26,10 @@ observation strategies, and behaviors.
 **Resources** describe datasets or other externally supplied assets, including their geometry,
 metadata, provenance, adapter settings, inputs, outputs, and supported operations.
 
-**Behaviors** are local `.kactor` or legacy `.kactors` files that can be edited, checked, run, and
-debugged as agents.
+**Behaviors** may begin as local `.kactor` or legacy `.kactors` files, or may be managed documents
+inside a project. Local behaviors can be edited, checked, run, and debugged as agents before they
+are published. Project behaviors can be checked out to a persistent local mirror for the same
+edit-run-test workflow and then updated in their originating project.
 
 **Digital twins** are hosted observation contexts. A digital twin contains observations,
 relationships, activities, schedules, and the knowledge graph produced by contextualization.
@@ -175,6 +177,17 @@ Saving sends the complete document back to the hosting Resources service. Valida
 change the icons in the workspace tree, although complete per-editor diagnostic propagation is not
 yet implemented.
 
+For a behavior, application, script, component, or test case, saving replaces the corresponding
+source in the managed project. If the declared behavior name changes, its canonical project path
+and tree entry change with it. The workspace tree is updated from the resulting resource lifecycle
+events, and the document's version-control decoration reflects whether its project file is new,
+modified, removed, or otherwise changed. Saving does not commit the change; use the project's
+version-control actions separately when the result is ready.
+
+To run or test a project behavior with the local agent tools, open its context menu and select
+**Edit and run locally**. This action is available when a local Runtime service is present and is
+described in more detail under “Working with behaviors and agents.”
+
 ### Resolve a workspace asset
 
 When a digital twin is selected:
@@ -245,7 +258,13 @@ removes its observations, storage, and schedule.
 
 ## Working with behaviors and agents
 
-The Applications section manages standalone behavior files.
+The Applications, Scripts and Test cases section manages both standalone behavior files and local
+working mirrors of behaviors owned by projects. The distinction is important:
+
+- a **local behavior** is owned by its selected file and has no project association until it is
+  published;
+- a **managed behavior** is owned by a project hosted by a Resources service; the file opened in
+  the behavior editor is a persistent local mirror rather than the authoritative project copy.
 
 ### Create or open a behavior
 
@@ -255,7 +274,20 @@ Use the two distinct browser actions:
 - **Open** selects an existing `.kactor` or legacy `.kactors` file.
 
 Recently used files remain in the browser and can be removed from the recent list without deleting
-the file.
+the file. A standalone behavior card shows its local file location. A managed behavior card instead
+uses the behavior URN as its title, identifies its project, and shows the local mirror path as
+secondary information.
+
+Managed cards also show their synchronization state:
+
+- a green check and **Up to date with project** means the mirror matches the last source
+  synchronized with the project;
+- an orange pencil and **Local changes not submitted** means the saved local source differs from
+  that project state;
+- a red error and **Mirror state unavailable** means the IDE cannot read or compare the mirror.
+
+This comparison uses source content rather than modification times, so it remains meaningful after
+an IDE restart.
 
 ### Edit and validate
 
@@ -278,13 +310,53 @@ The editor toolbar can:
 - run a new agent;
 - run a new agent in debug mode;
 - stop all agents started from the editor;
-- choose a local project for publication.
+- publish a standalone behavior to a local project, or update the originating project for a
+  managed behavior.
 
 Running or debugging opens a console tab for the agent. Debug sessions also appear in the debugger
 area beside the behavior tree. Multiple behavior editors coordinate one current debug target.
 
-Publication currently stops after project selection; writing the behavior into the selected project
-is not implemented.
+### Publish a local behavior to a project
+
+The cloud-upload action becomes available after the source is valid, compilation succeeds, and a
+local Resources service is available.
+
+1. Save and compile the behavior successfully.
+2. Select the cloud-upload action.
+3. Choose the destination project.
+4. Confirm the publication.
+
+The Resources service writes the source into the canonical folder for its behavior type, indexes
+the resulting project document, and reports the creation to open workspace trees. Applications,
+scripts, test cases, and general behaviors therefore appear in their respective project folders.
+The project tree also receives the current version-control state. Publishing uses create-or-update
+semantics: if the destination already contains the same behavior identity, its source is replaced.
+
+The original standalone file remains local after publication. To establish an explicitly managed
+working copy tied to the project, use **Edit and run locally** on the project behavior.
+
+### Edit and update a project behavior locally
+
+1. Locate the behavior in the workspace tree.
+2. Open its context menu and select **Edit and run locally**.
+3. The IDE retrieves the authoritative source and opens its persistent local mirror in the behavior
+   editor.
+4. Save, compile, run, debug, or test the mirror as needed.
+5. When satisfied, select the cloud-sync action to replace the project source with the local source.
+
+Managed mirrors are stored below `~/.klab/ide/behavior-mirrors`. Their origin metadata records the
+Resources service, project, behavior identity, and last synchronized source. Reopening **Edit and
+run locally** reuses the same mirror, so saved work that has not yet been submitted survives IDE
+restarts.
+
+The editor toolbar and recent-behavior card identify the originating project. After a successful
+update, the mirror returns to **Up to date with project**, the project workspace receives the new
+behavior structure and source, open editors are refreshed, and version-control decorations are
+recomputed. Renaming the behavior in its source updates its project identity and canonical path.
+
+If a project behavior changes elsewhere, the IDE refreshes an unchanged mirror and any open editor
+automatically. A mirror containing unsubmitted local changes is not overwritten; it remains marked
+**Local changes not submitted** until the user publishes it or otherwise reconciles the source.
 
 ## Working with resources
 
@@ -321,14 +393,12 @@ The following limitations are important when planning work:
 - The Worldview explorer has no functional browser or editor yet.
 - Resource editing is mostly a mock-up and does not persist most changes or execute its displayed
   operations.
-- Behavior publication lets the user choose a project but does not publish the file.
 - Concept search in the digital-twin panel is a placeholder.
 - Scenario selection and the full catalog of available observers are not populated yet. A resolved
   current observer is shown, but observer discovery remains incomplete.
 - The access-rights editor shown while creating a digital twin is incomplete.
 - Workspace settings, project settings, version-control branch selection, detach/untrack, and
   operation confirmation are incomplete.
-- Newly created documents inside folders may not immediately appear in the correct tree location.
 - Workspace validation results are not reliably routed into every affected open source editor.
 - Dirty source tabs are not marked with an asterisk.
 - Resource and workspace browsers do not always bring an already-open tab to the foreground.

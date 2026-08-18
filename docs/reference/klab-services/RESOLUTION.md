@@ -126,9 +126,10 @@ fails the resolution scope, and substitutes an empty dataflow with an error noti
 
 ### Reentrancy consequence
 
-The compiler object is per call, which is good isolation. The context-level `ResolutionGraph`
-objects and their shared collections are not isolated, and the future runs concurrently by
-default. Section 11 details the resulting risks.
+The compiler and mutable resolution graph are now per attempt. The context-level graph acts only
+as a thread-safe catalog from which each attempt snapshots submitted resources. Calls still run
+concurrently, but do not share their JGraphT graph, dependencies, service prototypes, observations,
+or synthetic IDs. Section 11 describes the remaining catalog-commit limitation.
 
 ## 5. ResolutionCompiler: root observation path
 
@@ -755,34 +756,53 @@ but it must not become a second, semantically divergent persistence contract.
 
 ## 11. Reentrancy and concurrency risks
 
-The public API promises asynchronous work, and independent calls can run concurrently. Current
-mutable state is not designed around that fact.
+The public API promises asynchronous work, and independent calls can run concurrently. Resolution
+attempts now use isolated graphs created from a snapshot of the resolver-side context resource
+catalog. The remaining shared context catalog is limited to thread-safe resource publication;
+successful semantic-plan reuse is still unimplemented.
 
-### 11.1 Shared context data is not thread-safe
+### 11.1 Resolution-attempt isolation
 
-The root and child resolution graphs use:
+Each call creates an attempt graph with its own:
 
-- `HashMap` for observations and service prototypes;
-- `ArrayList` for local resources;
-- a mutable `ResourceSet`;
-- a plain decrementing `long` for synthetic IDs;
-- mutable JGraphT graphs.
+- observation and service-prototype maps;
+- dependency set;
+- atomic synthetic-ID sequence;
+- mutable JGraphT graph.
 
-Child resolutions share several of these objects. Concurrent resolution or simultaneous resource
-submission can race, corrupt collections, reuse synthetic IDs, or lose dependency updates.
+Child graphs within that attempt share these objects because they are one compilation workspace.
+Concurrent root attempts do not. Context resources are maintained in a copy-on-write catalog and
+snapshotted when an attempt begins, so a resource submitted concurrently is visible either to the
+whole attempt or to the next one, never partially.
 
-### 11.2 Blocking inside asynchronous work
+The runtime also coalesces concurrent submissions of the same singular substantial identity within
+one runtime/context. With the current default strategy the key is context + cohort semantics + URN.
+Only the owner performs resolution and commit; other callers receive independent future views of
+the same result, so cancellation by one waiter does not cancel shared work. This is process-local;
+multi-runtime deployments will require a knowledge-graph uniqueness constraint or distributed
+admission protocol when they permit concurrent writes to the same context.
 
-The outer resolver future runs on the common asynchronous pool, then blocks on runtime query
-`.join()`. Under load, reciprocal resolver/runtime calls can exhaust common-pool capacity or create
-hard-to-diagnose latency amplification.
+### 11.2 Service boundary and blocking
 
-### 11.3 No explicit resolution transaction
+The resolver still blocks on runtime query `.join()`, but now uses a virtual-thread-per-task
+executor so that wait no longer occupies the common fork-join pool. The runtime/resolver exchange
+remains one serialized
+`ResolutionRequest` followed by one serialized `Dataflow`; duplicate in-flight runtime submissions
+are coalesced before issuing that request.
 
-The runtime has graph transactions, but the resolver's context cache does not have a begin/commit/
-rollback boundary. Child graphs mutate shared maps and dependencies while exploring strategies,
-including strategies that are later rejected. A failed resolution can therefore leave incidental
-state behind.
+`Scale` and `Coverage` are service-local runtime objects and must never cross this boundary.
+Request observations, geometry constraints, unresolved context observations, dataflow coverage,
+actuator observations, actuator coverage, and resolved actuator geometry are projected to plain
+`Geometry` instances at the producing boundary. Projection also recursively sanitizes geometry
+values in metadata, adapter parameters, resolution constraints, and contextualizer service-call
+parameters.
+
+### 11.3 No committed resolution catalog
+
+The runtime has graph transactions and each resolver attempt now owns all speculative mutable
+state, so rejected strategies and failed attempts cannot contaminate another call. The resolver
+still has no atomic commit step for publishing a successful semantic plan into a reusable context
+catalog; currently only explicitly submitted resources survive between attempts.
 
 ### 11.4 Recommended state model
 
@@ -806,7 +826,7 @@ Observable equality alone is insufficient.
 | --- | --- | --- | --- |
 | Critical | Strategy compilation | APPLY operations are validated but not emitted | A “successful” plan may omit intended computation |
 | Critical | Inter-resolution state | Cache lookup/accept are stubs and successful graphs are not committed | No semantic reuse; future partial cache changes could be inconsistent |
-| Critical | Reentrancy | Shared graph maps/lists/dependencies/IDs are unsynchronized | Races and cross-request state leakage |
+| High | Distributed admission | Submission coalescing is process-local | Two runtime instances writing one context still need graph-level uniqueness or distributed admission |
 | Critical | Reconstruction export | `DataflowGraph` extraction/adaptation is empty | No whole-context dataflow can be assembled from incremental resolutions |
 | High | Encoding | Observation-language output is not grammar-complete or round-trippable | Persisted source cannot yet rebuild and replay a resolution |
 | High | External execution | `runDataflow(...)` compiles partially but never executes and returns null | Persisted or external plans cannot run against a knowledge graph |
@@ -818,7 +838,7 @@ Observable equality alone is insufficient.
 | High | Model fidelity | Ingested models receive universal coverage | Ranking/coverage can accept geographically or temporally invalid models |
 | High | Constraint enforcement | Many constraint types are not enforced | Caller intent may be serialized but ignored |
 | High | Ranking comparator | Operand-dependent criterion order | Sorting may be inconsistent for model-specific ranking policies |
-| Medium | Async execution | Common-pool task blocks on `.join()` | Pool starvation and latency under load |
+| Medium | Async execution | A virtual thread blocks on runtime query `.join()` | No carrier starvation, but reciprocal service latency and cancellation still need end-to-end deadlines |
 | Medium | Notifications | ResourceSet notifications are discarded | Missing diagnostics for model/resource failures |
 | Medium | Contextualizables | Unsupported form compiles to null | Delayed null failure rather than resolver diagnostic |
 | Medium | Geometry | Dependent-without-context logs an error but continues | Work may continue with an invalid semantic context |
@@ -991,6 +1011,15 @@ dependencies, query IDs, and graph merge direction.
   - reproduces the remote-boundary failure caused by transporting `CoverageImpl`;
   - proves the plain geometry projection survives a polymorphic JSON round-trip and is not a
     `Coverage` implementation.
+- `klab.services.resolver/.../ResolverTransportSerializationTest`
+  - proves request observations, direct constraints, and nested parameter values project both
+    `Scale` and `Coverage` to plain geometry before and after JSON serialization.
+- `klab.services.resolver/.../ResolutionGraphConcurrencyTest`
+  - proves concurrent attempts receive independent mutable graphs and consistent resource
+    snapshots.
+- `klab.services.runtime/.../RuntimeServiceQueryTest`
+  - proves same-identity submissions execute once, expose cancellation-independent future views,
+    and release their in-flight admission entry.
 - `klab.core.common/.../DataflowSerializationTest`
   - proves dataflow name, requirements, and proportional resolver coverage survive polymorphic
     Jackson serialization through the `Dataflow` interface.
@@ -1008,9 +1037,9 @@ Focused verification commands:
 2. Make all failure exits produce structured resolver notifications.
 3. Complete strategy APPLY and transformation/local-name compilation.
 4. Add explicit recursion/cycle detection.
-5. Define a per-attempt resolution workspace and atomic context-catalog commit.
+5. Define an atomic context-catalog commit for successful isolated attempts.
 6. Implement cache keys and invalidation before implementing `getResolving(...)`.
-7. Make the resolver executor and runtime-query composition explicit and non-blocking.
+7. Add propagated deadlines and cancellation to the explicit resolver executor/runtime query.
 8. Implement provenance-to-`DataflowGraph` extraction, incremental-fragment assembly, reference
    closure, submitted-value definitions, and validity-envelope generation.
 9. Complete the observation-language codec defined by `Observation.xtext`, including strict
@@ -1019,7 +1048,8 @@ Focused verification commands:
     graphs.
 11. Enforce all advertised resolution constraints and make ranking comparator behavior global and
     deterministic.
-12. Add concurrent integration tests before enabling shared-work deduplication.
+12. Add multi-service integration tests and graph-level uniqueness before enabling distributed
+    shared-work deduplication.
 
 ## 16. Trace map
 

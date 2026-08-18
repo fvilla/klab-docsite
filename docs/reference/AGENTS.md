@@ -977,7 +977,13 @@ races and exercise runtime concurrency. An absent or false `parallel` property p
 execution, and a non-boolean value is a validation error.
 Use testcases for runtime services, semantic
 operations, actors, and application behavior—not only pure functions. Test scopes collect action
-and assertion results for later reporting. The testcase scaffolding collects results and computes statistics that may be preserved after the testcase has completed. It is used to exercise k.LAB complex observation behaviors against their intended results. A suite of testcases will be made available to cover every k.LAB functionalities, to run at each release cycle.
+and assertion results for later reporting. Output written through `core.console` remains visible in
+the live agent console and is also retained, in emission order and with its stdout/stderr stream,
+under the report for the test action that produced it. This association remains correct when tests
+run in parallel because output is attributed through each action's scope. The testcase scaffolding
+collects results and computes statistics that may be preserved after the testcase has completed. It
+is used to exercise k.LAB complex observation behaviors against their intended results. A suite of
+testcases will be made available to cover every k.LAB functionality at each release cycle.
 
 Keep each test action focused, use descriptive action names, and prefer explicit match branches for
 `empty` and `exception` when testing reactive calls.
