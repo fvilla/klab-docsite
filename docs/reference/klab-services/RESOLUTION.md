@@ -183,6 +183,16 @@ notification.
 The geometry becomes a worldview-bound `Scale` through `GeometryRepository.scale(geometry,
 scope)`.
 
+Persisted observations take the inverse path in `KnowledgeGraphNeo4j.adapt(...)`: their encoded
+geometry definition is decoded through `GeometryRepository.get(...)`. The repository uses
+Caffeine caches for canonical geometry/scale pairs and merged scales. Scale construction is
+intentionally performed outside a cache mapping function because `Scale.create(...)` calls the
+configured geometry promoter, which reentrantly publishes the same pair through
+`GeometryRepository.put(...)`. Loading through `Cache.get(key, mappingFunction)` would therefore
+attempt a same-key recursive cache update and abort observation adaptation before identity lookup.
+After construction, `putIfAbsent` converges concurrent creators on the first published canonical
+pair, and alternate geometry keys are registered only after the primary load completes.
+
 ### 5.5 Querying knowledge that already exists
 
 Before model resolution, `query(...)` asks the runtime for existing knowledge only for:
@@ -781,6 +791,60 @@ Only the owner performs resolution and commit; other callers receive independent
 the same result, so cancellation by one waiter does not cancel shared work. This is process-local;
 multi-runtime deployments will require a knowledge-graph uniqueness constraint or distributed
 admission protocol when they permit concurrent writes to the same context.
+
+For persisted identity checks, the submitted URN is the logical `namespace:name` identity
+(for example, `test.tanzania:ruaha`). Neo4j stores that observation under the context-local catalog
+URN `<context-id>:individuals:<namespace:name>`. The default identification strategy compares the
+logical URNs after removing only that catalog wrapper. A match returned by `register(...)` is a
+terminal submission result: its already resolved positive-ID observation is returned without
+creating resolution, provenance, or knowledge-graph state again.
+
+Cohort eligibility is based on the fundamental enumerable substantial types—subject, agent, event,
+and relationship, which normally also carry `COUNTABLE`. `Reasoner.baseSubstantialType(...)` removes
+non-identifying traits, roles, and modifiers to produce the common cohort observable. A null,
+`owl:Nothing`, or non-substantial reasoner result is invalid and falls back to the original singular
+semantics. Registration always requests creation of a missing cohort, including the first root
+submission where no observation transaction exists yet. Cohorts are durable context-catalog assets:
+creation uses a short independent knowledge-graph transaction that atomically stores the cohort and
+its `Context -HAS_CHILD-> Cohort` link. Therefore a later failed observation submission legitimately
+leaves an empty cohort in the graph. Creation is serialized and rechecked per local knowledge-graph
+instance; cross-runtime uniqueness still requires the graph-level constraint mentioned above. Later
+submissions must find the cohort before applying the identification strategy. If an older Reasoner
+stored a cohort using decorated rather than canonical semantics, lookup re-normalizes existing cohort
+observables and reuses the semantic match instead of creating a parallel cohort.
+
+Instantiators return individual observations while contextualizing a collective. The runtime must
+submit each outcome in `executionScope.within(collective)`: registration then records both the
+durable cohort membership and the structural `collective -HAS_CHILD-> individual` relationship,
+while `contextualizeFor(individual)` removes the collective focus before resolving the independent
+countable observation. The random generator currently assigns identities of the form
+`random:<KSUID>`; these are valid, distinct logical URNs. They are intentionally ephemeral, so a
+reproducible generator should eventually derive stable identities from identifying source data,
+but the current URNs do not prevent persistence or commit membership.
+
+All nested runtime transactions form one atomic transition. They share not only the transaction
+graph, ID allocation, cohort geometry, and contextualizers, but also the `added`, `modified`, and
+`failures` collections used to assemble the root commit. This is essential after cohorts became
+durable independently of observation submission: a generated individual is an added observation,
+its pre-existing cohort is a modified asset, and the `HAS_MEMBER`/`HAS_CHILD` edges are added links
+in the same root commit. The cohort must not be mislabeled as an added cohort. The final commit ID
+is attached to every newly stored observation, including secondary submissions that returned an
+intermediate commit result before the root commit existed.
+
+The cohort's durable ownership link is context-local. `KnowledgeGraphNeo4j` translates the
+`CONTEXT_ASSET` sentinel to the contextualized graph's `rootContextId`, so both cohort lookup and
+the independent `Context -HAS_CHILD-> Cohort` write address one specific digital twin even when the
+same database hosts several contexts. Because that link is created before the observation
+transaction, the root commit also asserts it whenever the cohort is modified. The assertion does
+not write a duplicate Neo4j relationship; it closes the synchronization gap for a client that had
+already loaded the Context adjacency before the cohort existed. `ClientKnowledgeGraph` applies the
+asserted link idempotently, making the cohort visible as a Context child without a full graph
+reload.
+
+Knowledge-graph transaction operations are fail-fast. A failed node creation, invalid allocated
+ID, update, or link rolls back the graph transaction and makes the enclosing contextualization
+fail; it must never be logged and swallowed while activities and a commit are reported as
+successful.
 
 ### 11.2 Service boundary and blocking
 
