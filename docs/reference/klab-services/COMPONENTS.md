@@ -125,8 +125,11 @@ looks like a Java archive with a manifest, copies it into `plugins/`, loads it w
 it for k.LAB contributions.
 
 Direct imports are intentionally local. They do not record Maven coordinates, so the registry
-cannot automatically rediscover a newer build. Updating a directly imported component means
-uploading a replacement `.kar` or importing a newer version.
+cannot automatically rediscover a newer build. The hosting service therefore reports the imported
+archive as up to date until a replacement `.kar` is uploaded. Updating a directly imported
+component means uploading that replacement or importing a newer version. Services that copied the
+component as a dependency can still discover the replacement through the hosting Resources
+service's component descriptor.
 
 ### Maven Import
 
@@ -163,6 +166,14 @@ descriptor records:
 - Libraries, actors, adapters, services, annotations, verbs, importers, and exporters.
 - The source service id, when applicable.
 - The registration or update timestamp.
+- The import type: `BUILT_IN`, `FILE`, `MAVEN`, or `DEPENDENCY`.
+- The last computed update status and timestamp of the latest version known at the source.
+
+The update status is one of `NOT_UPDATEABLE`, `UNKNOWN`, `UP_TO_DATE`, or `UPDATE_AVAILABLE`.
+`latestVersionTimestamp` is zero when the source cannot provide an authoritative timestamp. These
+fields are computed for advertised descriptors and do not alter or install components. Stable
+Maven releases and the built-in service component are not updateable; Maven SNAPSHOTs, directly
+imported `.kar` archives, and dependency copies are updateable through their respective sources.
 
 The descriptor is saved to `catalog.json` and indexed by contribution type. Service verbs,
 adapters, annotations, verbs, importers, and exporters can then be resolved by name. When more than
@@ -202,6 +213,21 @@ descriptor for lookups.
 Components can be updated manually or automatically. Automatic updates apply only to Maven-sourced
 SNAPSHOT components.
 
+Update discovery follows the component's import type:
+
+- A hosted `MAVEN` SNAPSHOT checks the Maven component cache and configured repositories. Its
+  latest timestamp comes from the selected local artifact or remote snapshot metadata.
+- A hosted `FILE` component has no external repository to poll. Its current registration timestamp
+  is also its latest-known timestamp; uploading a replacement advances both.
+- A `DEPENDENCY` component asks the `ResourcesService` identified by `sourceServiceId` for the
+  matching hosted descriptor. A newer hosted registration or an update advertised by that service
+  makes the dependency's status `UPDATE_AVAILABLE`.
+- `BUILT_IN` components and stable Maven versions report `NOT_UPDATEABLE`.
+
+This separation is important operationally: the Resources service owns and serves hosted
+components, while Runtime and other services should refresh dependency copies from that Resources
+service rather than consulting Maven or a local file path themselves.
+
 ### Manual Direct Update
 
 Upload a new `.kar` archive with `component.kar.import`, or use the service path that verbs the
@@ -222,9 +248,10 @@ loop.
 
 ### Explicit SNAPSHOT Check
 
-The registry exposes an explicit update check for Maven-sourced SNAPSHOT components. The check
-walks the registered components and considers only descriptors that have Maven coordinates whose
-version identifies a SNAPSHOT build.
+`ComponentRegistry.checkForUpdates()` performs a read-only update check for Maven-sourced SNAPSHOT
+components. It walks the registered components and considers only descriptors that have Maven
+coordinates whose version identifies a SNAPSHOT build. It does not synchronize an artifact,
+unload a component, or install a replacement.
 
 For each candidate, the Maven cache determines whether:
 
@@ -233,18 +260,27 @@ For each candidate, the Maven cache determines whether:
 - A newer snapshot appears to exist in a configured remote repository.
 - The status cannot be established.
 
-When an update is indicated, the registry synchronizes the artifact, compares the candidate file
-hash to the installed descriptor hash, verifies k.LAB compatibility, unloads the current component,
-installs the replacement archive, registers the new descriptor, and saves the updated catalog.
+The result reports available updates and diagnostics. The component descriptors advertised by the
+service provide the structured `updateStatus` and `latestVersionTimestamp` needed by an eventual
+administration API.
+
+### SNAPSHOT Update Actions
+
+`ComponentRegistry.updateMavenSnapshotComponents()` composes discovery with updates for all changed
+Maven SNAPSHOTs, preserving the existing automatic behavior. `updateComponent(id, version)` is the
+targeted action intended for a future administration endpoint. When an update is indicated, these
+actions synchronize the artifact, compare the candidate file hash to the installed descriptor
+hash, verify k.LAB compatibility, unload the current component, install the replacement archive,
+register the new descriptor, and save the updated catalog.
 
 Hash comparison is important because SNAPSHOT timestamps and repository metadata can be noisy. If
 the retrieved archive has the same content hash as the installed archive, the registry does not
 replace the component.
 
-### Startup Check
+### Startup Update
 
-Services can request a one-time update check after component registry initialization. The startup
-option is:
+Services can request a one-time check and update after component registry initialization. The
+startup option is:
 
 ```text
 -updateComponents
@@ -253,9 +289,9 @@ option is:
 The current service startup options enable this by default. Implementations that only use the
 `StartupOptions` interface inherit the same default unless they override it.
 
-### Periodic Automatic Check
+### Periodic Automatic Update
 
-Services can also schedule repeated SNAPSHOT checks:
+Services can also schedule repeated SNAPSHOT checks and updates:
 
 ```text
 -autoUpdateComponents
@@ -356,8 +392,8 @@ component.maven.import(
 )
 ```
 
-Then run an explicit update check from the hosting service, or start the service with periodic
-checks enabled:
+Then run the explicit bulk or targeted update action from the hosting service, or start the service
+with periodic updates enabled:
 
 ```text
 -autoUpdateComponents -componentUpdateIntervalMinutes 10
