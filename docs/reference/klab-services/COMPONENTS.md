@@ -210,8 +210,9 @@ descriptor for lookups.
 
 ## Update Modes
 
-Components can be updated manually or automatically. Automatic updates apply only to Maven-sourced
-SNAPSHOT components.
+Components can be updated manually or automatically. Scheduled repository polling applies only to
+Maven-sourced SNAPSHOT components. Dependency copies are checked on demand when the Runtime needs
+one of their contributions.
 
 Update discovery follows the component's import type:
 
@@ -227,6 +228,29 @@ Update discovery follows the component's import type:
 This separation is important operationally: the Resources service owns and serves hosted
 components, while Runtime and other services should refresh dependency copies from that Resources
 service rather than consulting Maven or a local file path themselves.
+
+### Dependency Refresh During Resolution
+
+Before resolving a service call from a dependency component, the Runtime checks whether the exact
+source Resources service is currently visible. If it is, the Runtime compares the installed
+timestamp of the matching source descriptor with the timestamp of its local dependency copy. Only
+a source component that is already installed with a newer timestamp triggers replacement; an
+upstream update merely advertised by the source is not copied until the source has installed it.
+
+The source service is not required to be present when the Runtime initializes. If it is absent,
+resolution continues with the local copy and the same check is made again on later resolutions.
+When a newer source installation is available, the replacement archive is exported and validated
+before the Runtime attempts to unload the active component. A successful replacement is registered
+and started before resolution continues. Failures are logged and are otherwise transparent to the
+resolution request; the registry preserves or restores the installed component whenever possible.
+
+If the validated replacement cannot be installed immediately, for example because Windows still
+holds the active archive open, it is saved in the component repository's `pending-updates/`
+directory. On the next service restart it is copied into `plugins/` before PF4J initializes and its
+dependency provenance is restored from the local marker. This startup operation is entirely local
+and does not depend on the source Resources service being available. If export or validation fails
+before an archive can be staged, no restart action is possible and a later resolution retries the
+source check instead.
 
 ### Manual Direct Update
 

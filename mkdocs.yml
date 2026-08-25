@@ -55,13 +55,14 @@ nav:
       - Architecture: reference/klab-services/ARCHITECTURE.md
       - Scopes: reference/klab-services/SCOPES.md
       - Components: reference/klab-services/COMPONENTS.md
+      - Storage: reference/klab-services/STORAGE.md
+      - Agent compiler: reference/klab-services/AGENT_COMPILER.md
   - Services:
       - Resources service: reference/klab-services/RESOURCES.md
       - Observation resolution: reference/klab-services/RESOLUTION.md
       - Expressions: reference/klab-services/EXPRESSIONS.md
   - k.Actors:
-      - Language guide: reference/AGENTS.md
-      - Agent compiler: reference/klab-services/AGENT_COMPILER.md
+      - k.Actors guide: reference/AGENTS.md
   - IDE:
       - User guide: reference/klab-ide/IDE.md
       - Architecture: reference/klab-ide/IDE_ARCHITECTURE.md
