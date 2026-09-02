@@ -9,16 +9,25 @@ The current Xtext grammar is the authority for source syntax. It lives in the si
 `klab-languages` repository at
 `org.integratedmodelling.languages.kactors/src/org/integratedmodelling/languages/KActors.xtext`.
 The `KActorsBehavior`, `KActorsAction`, `KActorsStatement`, and `KActorsValue` interfaces in
-`klab.core.api` define the semantic contract after parsing. The conceptual background comes from
-[section 5 of the k.LAB technical note](https://docs.integratedmodelling.org/technote/index.html#_the_reactivity_layer_behaviors_and_applications).
-That note predates the current grammar, so use it for motivation rather than exact syntax.
+`klab.core.api` define the semantic contract after parsing. For conceptual
+background, see the [reactivity and digital-twin section of the current k.LAB
+technical note](KLAB.md#the-reactivity-layer-and-digital-twins).
+
+k.Actors is the reactive member of a three-language architecture. The
+[worldview ontology language](ONTOLOGY_LANGUAGE.md) (`.kwv`) defines shared
+concepts; [k.IM](KIM.md) (`.kim`) publishes strategies for observing them; and
+k.Actors (`.kactor`) instruments observations, digital twins, users, and
+sessions with behavior. All three inherit the
+[observable expression language](OBSERVABLES.md), but k.Actors accepts an
+observable only as a `{{ ... }}` semantic literal.
 
 ## 1. What k.Actors is for
 
-k.LAB separates scientific information into resource, semantic, and reactivity layers. k.IM
-describes what observations mean and how they can be resolved. k.Actors describes how observations
-and other runtime agents behave: what they do when started, which messages they accept, what events
-they emit, and how they react to events from other agents.
+k.LAB separates scientific information into resource, semantic, and reactivity
+layers. The worldview defines what observations mean, k.IM describes how they
+can be resolved, and k.Actors describes how observations and other runtime
+agents behave: what they do when started, which messages they accept, what
+events they emit, and how they react to events from other agents.
 
 A k.Actors source file defines one **behavior**. At runtime, a behavior becomes an actor with:
 
@@ -885,14 +894,14 @@ or layout element without changing ordinary variable scope. `#lowercase` is a ta
 
 ### 10.1. Observation behaviors
 
-A `behavior` can be bound to observations created by k.IM models, as long as the observation has _agent_ semantics. The behavior then runs with the
+A `behavior` can be bound to observations created by [k.IM models](KIM.md), as long as the observation has _agent_ semantics. The behavior then runs with the
 observation as its reactive peer, allowing it to react to scheduled events, inspect
 state, communicate with other observed agents, or trigger new observations. Observations that are not agents may be bound to a `task`, which can only monitor or observe events with restrictions that reflect its non-agentic nature.
 
-Binding belongs to k.IM rather than the k.Actors grammar. A typical k.IM model uses a `@bind`
+Binding belongs to [k.IM](KIM.md) rather than the k.Actors grammar. A typical k.IM model uses a `@bind`
 annotation naming the behavior, and may add a selection condition. The k.LAB technical note's city example
-illustrates this pattern (but consult the current k.IM grammar before copying its older binding
-syntax).
+illustrates this pattern; the current k.IM guide documents the convention and
+its boundary with the grammar.
 
 Use observation behaviors when the modeled system contains agents that engender structural change in response to events, not
 merely when a value can be recomputed by an ordinary process model.

@@ -15,4 +15,3 @@ IDE documentation, and component references for the k.LAB software stack.
     Most reference pages are synchronized from sibling repositories. Edit those pages in their
     originating project and run `python scripts/sync_docs.py`; do not edit generated copies under
     `docs/reference/`.
-

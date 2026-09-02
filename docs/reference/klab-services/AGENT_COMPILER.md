@@ -4,7 +4,7 @@ This document describes the current k.Actors analysis and Java source-generation
 `klab-services`. It is intended for contributors working on semantic validation, component and
 behavior resolution, Java actor integration, generated code, or the runtime execution model.
 
-For the language itself, see [AGENTS.md](../AGENTS.md). The parsed model contracts are
+For the language itself, see [AGENTS.md](AGENTS.md). The parsed model contracts are
 `KActorsBehavior`, `KActorsAction`, `KActorsStatement`, and `KActorsValue` in `klab.core.api`.
 
 ## 1. Scope and current status

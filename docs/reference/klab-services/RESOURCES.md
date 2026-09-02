@@ -9,6 +9,19 @@ The other methods still declared by `ResourcesService` are operational facilitie
 resource contextualization, repository management, behavior parsing, and project locking). They
 do not create an alternative asset CRUD surface.
 
+## Terminology: asset versus `Resource`
+
+In this document, **asset** is the generic word for any object implementing `KlabAsset`: projects,
+namespaces, models, workflows, components, and the other managed knowledge objects are all assets.
+`Resource` with an initial capital denotes only the concrete
+`org.integratedmodelling.klab.api.knowledge.Resource` contract. A `Resource` describes an
+adapter-backed dataset or computation, including its URN, version, geometry, parameters, metadata,
+files, validation notifications, and history. “Resources service” is the proper name of the
+service, not a claim that every asset it manages is a `Resource`.
+
+The publication lifecycle in this document applies to that concrete `Resource` contract. It must
+not be generalized to arbitrary assets without defining their own submission and review rules.
+
 ## Core concepts
 
 Every managed object is a `KlabAsset`, identified by a URN and classified by
@@ -107,6 +120,9 @@ The parameter map belongs to the selected asset class. Current general parameter
 
 - `urn`: a Java regular expression matched against the complete URN;
 - `query`: an alias for the general textual/URN pattern;
+- `limit` or `maxResults`: cap a `ResourceInfo` catalog query to 1–100 results;
+- `includePublishedLocal`: include retained local sources that have already been published; the
+  default is `false` on a local Resources service;
 - `observable`: the typed model-candidate query described above.
 
 An empty map selects all visible assets of the class. If the requested `infoClass` is the asset
@@ -122,11 +138,125 @@ Submission modes are:
 - `REPLACE`: replace the current representation;
 - `UPDATE`: update while retaining history when storage supports it;
 - `MERGE`: merge submitted content into the existing asset.
+- `CREATE_OR_UPDATE`: create an absent asset or save a newer version of an existing one;
+- `PUBLISH`: submit a concrete `Resource` to a remote authoritative service for tier-1 review.
 
 The current provider can ingest `Resource`, create `Workspace`, create `Project`, and replace/update
 file-backed k.IM documents carrying both `projectName` and `sourceCode`. A new project asset must use
-the `workspace/project` URN. k.Actors document mutation, project/workspace update, version history,
-and merge semantics remain pending and return explicit notifications.
+the `workspace/project` URN. `Resource` updates preserve the previous current representation in the
+embedded history and require the submitted version to be newer. k.Actors document mutation,
+project/workspace update, and merge semantics remain pending and return explicit notifications.
+
+## Complete lifecycle of a concrete `Resource`
+
+### 1. Local creation and tier 0
+
+A new `Resource` is first created on a local Resources service. Its adapter contract, required
+parameters, geometry, identity, version, metadata, and local-file integrity are validated before a
+normal save is enabled. Creation establishes a `ResourceInfo` catalog record with owner-scoped
+rights, `Stage.STAGING`, and review status 0 (tier 0).
+
+The editor distinguishes two subsequent mutations:
+
+- **Update temporary data** uses `REPLACE`. It keeps the same version and is accepted only by a
+  local service or for a tier-0 record. It is intended for incomplete staging metadata and still
+  requires a valid resource overview.
+- **Save new version** uses `UPDATE`. Full validation must pass, the version must be newer than the
+  current version, and the former current representation is appended to `Resource.history`.
+  Historical versions do not appear as separate browser results.
+
+Permissions do not live in the serialized `Resource`. `ResourceInfo.rights` is independently
+persisted in `ResourcesKBox`, and the editor updates it through its dedicated permissions action.
+Saving resource content does not implicitly save permission edits.
+
+### 2. Publication eligibility in the editor
+
+Publication is a separate tab, not a variant of local Save or Update. It is available only when all
+of these conditions hold:
+
+- the source service is local and the local `Resource` is no longer an unsaved draft;
+- client-side validation has no errors;
+- at least one available non-local Resources service grants `CRUDOperation.CREATE` to the current
+  `UserScope`;
+- the user explicitly selects and confirms the target, acknowledging that local editing becomes
+  restricted.
+
+Target discovery and submission run off the JavaFX application thread. The publication action is a
+`WaitButton`, so a long adapter validation or remote ingest exposes waiting/success/failure state
+without blocking the UI.
+
+The caller is an editor when `WorkflowParticipant.from(UserScope)` contains `WorkflowRole.EDITOR`
+(workflow administrators also qualify). Otherwise the publication tab requires an intended editor
+identity and sends it as `klab.publication.intendedEditor` metadata. The remote endpoint rejects a
+non-editor submission without that metadata even if a non-IDE client bypasses the UI.
+
+### 3. Remote submit and review entry
+
+The client submits the complete `Resource` to
+`PUT /api/v1/submit/RESOURCE/PUBLISH/{urn}`. `PUBLISH` is invalid for any other knowledge class. The
+target enforces CREATE permission and rejects the request when:
+
+- the target is local;
+- any version of the URN already exists;
+- incoming validation notifications contain an error;
+- mandatory adapter parameters are missing;
+- the target adapter's local-import validator rejects the resource; or
+- a non-editor submission has no intended editor metadata.
+
+The adapter validator or metadata analysis may replace the catalog and namespace components. Once
+that processing succeeds, the service replaces the first URN component with its own sanitized
+service name and returns that final authoritative URN. A duplicate check is repeated against the
+final URN, so analysis cannot accidentally overwrite an existing resource.
+
+Successful ingest creates exactly one current resource keyed by that final URN. Its remote `ResourceInfo` is
+set to `Stage.REVIEWING` and review status 1 (tier 1, “under review”). The configured
+`publicationReviewWorkflow` defaults to `asset-review`. For an editor submission, the service tries
+to start that workflow automatically in its `editing` state. A missing or unusable workflow does
+not roll back the accepted resource; it is reported as a warning so review can be started manually.
+Setting the configuration value to blank disables automatic workflow creation.
+
+### 4. Recording authority on the local source
+
+Only after remote acceptance does the client call the source service's `markPublished` API. The
+source must itself be local, and only the resource owner or a service administrator may change the
+record. The endpoint is `PUT /resourceInfo/{urn}/publication/{serviceId}` and its request
+body carries the final `authoritativeResourceUrn`. The local `ResourceInfo` then stores:
+
+- `published = true`;
+- `authoritativeServiceId` equal to the accepting remote service ID; and
+- `authoritativeResourceUrn` equal to the final URN returned after remote validation and analysis;
+- `publicationTimestamp` for the successful handoff.
+
+This is a cross-service two-step operation, not a distributed transaction. If the remote accepts
+the resource but the local catalog update fails, the editor reports that exact partial outcome;
+the remote copy is authoritative and the local record must be reconciled rather than submitting a
+duplicate blindly.
+
+### 5. Discovery and local read-only behavior
+
+Normal local `ResourceInfo` search omits records whose local source has `published = true`.
+`includePublishedLocal=true` opts into those records through the generic query API; the resource
+browser exposes the same option as **Show published local resources**. The filter applies only to a
+local service, so it never hides the authoritative remote record.
+
+When an opted-in published local source is opened, its resource fields, Save, Update, and Delete
+actions are read-only by default. **Edit published local copy** is shown beside the local action
+buttons. Checking it opens an explicit warning that local changes do not update the authoritative
+server; only confirmation enables editing. Permissions retain their independent authorization and
+update action.
+
+### 6. Re-publication and deletion
+
+The authoritative service ID is retained even when that service is unavailable. Re-publication is
+allowed when the recorded authority is unavailable. If it is available, only a user with
+`CRUDOperation.ADMINISTER` may choose a different target, and the editor warns that normal
+operations belong on the authoritative service.
+
+The recorded authoritative service is not offered again while it still returns the recorded
+`authoritativeResourceUrn`. It becomes
+eligible only after that remote resource has been deleted. Independently of UI discovery, every
+remote `PUBLISH` request rejects an existing URN, including a different version, so concurrent or
+stale clients cannot turn publication into an update.
 
 ### Delete
 
@@ -176,7 +306,7 @@ The following gaps are deliberate and must remain visible until supporting contr
 - implement model coverage for `info(..., MODEL, Coverage.class, ...)`;
 - implement resource composition and caching for multi-URN retrieval;
 - implement import-schema resolution and geometry-aware schema selection in the generic identifier;
-- implement project/workspace update, version history, and `MERGE` submission;
+- implement project/workspace update and `MERGE` submission;
 - support k.Actors document mutation in `WorkspaceManager`;
 - make workspace deletion atomic and report complete change sets;
 - return DELETE response bodies from `ResourcesClient`;

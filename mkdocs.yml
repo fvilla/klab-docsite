@@ -50,23 +50,34 @@ markdown_extensions:
       custom_checkbox: true
 
 nav:
-  - Home: index.md
+  - Home: reference/klab-services/KLAB.md
   - Platform:
       - Architecture: reference/klab-services/ARCHITECTURE.md
+      - k.LAB technical note: reference/klab-services/KLAB.md
       - Scopes: reference/klab-services/SCOPES.md
+      - Semantic modeling: reference/klab-services/SEMANTIC_MODELING.md
+      - ODO-IM: reference/klab-services/ODO_IM.md
+      - Provenance: reference/klab-services/PROVENANCE.md
       - Components: reference/klab-services/COMPONENTS.md
       - Storage: reference/klab-services/STORAGE.md
+  - Languages:
+      - Observable expressions: reference/klab-services/OBSERVABLES.md
+      - Worldview ontology: reference/klab-services/ONTOLOGY_LANGUAGE.md
+      - k.IM: reference/klab-services/KIM.md
+      - k.Actors: reference/klab-services/AGENTS.md
       - Agent compiler: reference/klab-services/AGENT_COMPILER.md
   - Services:
       - Resources service: reference/klab-services/RESOURCES.md
       - Observation resolution: reference/klab-services/RESOLUTION.md
       - Expressions: reference/klab-services/EXPRESSIONS.md
-  - k.Actors:
-      - k.Actors guide: reference/AGENTS.md
+      - Resource workflows: reference/klab-services/WORKFLOWS.md
+      - Web UI architecture: reference/klab-services/WEBUI_ARCHITECTURE.md
+      - Web UI extensions: reference/klab-services/WEBUI_EXTENSION.md
   - IDE:
       - User guide: reference/klab-ide/IDE.md
       - Architecture: reference/klab-ide/IDE_ARCHITECTURE.md
       - Project structure: reference/klab-ide/PROJECT.md
+      - Workflow editor: reference/klab-ide/WORKFLOWS.md
       - Build notes: reference/klab-ide/BUILD.md
       - Conveyor build: reference/klab-ide/BUILD_README.md
       - Timeline component: reference/klab-ide/Timeline_Component_Documentation.md
@@ -77,6 +88,7 @@ nav:
       - Geospatial component: components/geospatial.md
   - Roadmap: reference/klab-services/TODO.md
   - Contributing:
+      - About this documentation site: index.md
       - Documentation workflow: contributing/documentation-workflow.md
 
 copyright: Copyright &copy; Integrated Modelling Partnership
